@@ -1,0 +1,105 @@
+import {
+    Router,
+    type Request,
+    type Response
+} from "express";
+
+import {
+    generateDataMigrationQueries
+} from "../ai/services/data_migration_service.js";
+
+import {
+    dataMigrationRequestSchema
+} from "../ai/schemas/data_migration_request_schema.js";
+
+import { respondWithError } from "./route_helpers.js";
+
+import {
+    MANIFEST_PATH,
+    ORACLE_DATA_DIR,
+    POSTGRES_DML_DIR
+} from "../lib/file_layout.js";
+
+export const dataMigrationRouter =
+    Router();
+
+/*
+ * Stage 3 of 3.
+ *
+ * POST /api/data-migration
+ *
+ * Input:
+ *   source_schema  Oracle metadata
+ *   target_schema  PostgreSQL metadata
+ *   user_query     optional filter / scope instruction
+ *
+ * Output:
+ *   {
+ *     "source": "oracle",
+ *     "target": "postgresql",
+ *     "data_extraction": [ "SELECT DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION_ID FROM HR.DEPARTMENTS;" ],
+ *     "data_management": [ "INSERT INTO public.departments (department_id, department_name, location_id) VALUES {VALUES_PLACEHOLDER};" ],
+ *     "files": [ ... ],
+ *     "placeholder": "{VALUES_PLACEHOLDER}",
+ *     "summary": "..."
+ *   }
+ *
+ * data_extraction[i] feeds data_management[i]. The two arrays are parallel
+ * lists and are always the same length.
+ */
+dataMigrationRouter.post(
+    "/data-migration",
+
+    async (
+        req: Request,
+        res: Response
+    ): Promise<void> => {
+
+        const parsed =
+            dataMigrationRequestSchema.safeParse(
+                req.body
+            );
+
+        if (!parsed.success) {
+            res.status(400).json({
+                error:
+                    "Invalid data-migration request",
+
+                details:
+                    parsed.error.format()
+            });
+
+            return;
+        }
+
+        try {
+            const response =
+                await generateDataMigrationQueries(
+                    parsed.data
+                );
+
+            res.status(200).json({
+                provider:
+                    response.provider,
+
+                result:
+                    response.result,
+
+                layout: {
+                    extraction: ORACLE_DATA_DIR,
+                    management: POSTGRES_DML_DIR,
+                    manifest: MANIFEST_PATH
+                }
+            });
+
+        } catch (
+            error: unknown
+        ) {
+            respondWithError(
+                res,
+                error,
+                "Data migration query generation failed"
+            );
+        }
+    }
+);

@@ -5,8 +5,8 @@ import {
 } from "express";
 
 import {
-    generateSchemaDesign
-} from "../ai/services/schema_design_service.js";
+    runSchemaMigration
+} from "../ai/services/schema_migration_service.js";
 
 import {
     SchemaDesignRequest
@@ -16,6 +16,8 @@ import { respondWithError } from "./route_helpers.js";
 
 import {
     MANIFEST_PATH,
+    ORACLE_SCHEMA_DIR,
+    POSTGRES_DDL_DIR,
     POSTGRES_SCHEMA_DIR,
     ROOT
 } from "../lib/file_layout.js";
@@ -24,7 +26,7 @@ export const schemaDesignRouter =
     Router();
 
 /*
- * Stage 1 of 3.
+ * Stages 1 and 2 of the pipeline, chained.
  *
  * POST /api/schema-design
  *
@@ -33,7 +35,20 @@ export const schemaDesignRouter =
  *   current_design   optional in-flight design from a UI
  *   user_query       natural-language split / merge request
  *
- * Output: the final PostgreSQL target_schema, which stage 2 diffs.
+ * Stage 1 designs the final PostgreSQL target schema. If the design is applied
+ * ("recommended" or "needs_change"), stage 2 verifies that schema, diffs it
+ * against Oracle, and emits the CREATE / ALTER / DROP that applies it. A
+ * rejected design ("not_recommended") applies nothing, so the design response
+ * is returned on its own as a 422 and stage 2 never runs.
+ *
+ * Success:
+ *   {
+ *     "result": {
+ *       "schema_design":    { "status", "summary", "issue_reason", "target_schema" },
+ *       "table_management": { "source", "target", "table_management", "diff", "summary" },
+ *       "files": [ ... ]
+ *     }
+ *   }
  */
 schemaDesignRouter.post(
     "/schema-design",
@@ -61,57 +76,23 @@ schemaDesignRouter.post(
         }
 
         try {
-            const response =
-                await generateSchemaDesign(
+            const result =
+                await runSchemaMigration(
                     parsed.data
                 );
 
-            const result =
-                response.result as {
-                    status: string;
-                    summary: string;
-                    issue_reason: string;
-                    target_schema: unknown;
-                };
-
-            /*
-             * A rejected design has no target schema, so there is nothing
-             * to diff downstream. Surface that explicitly instead of
-             * returning an empty artifact bundle.
-             */
             res.status(200).json({
-                provider:
-                    response.provider,
-
                 result,
 
                 layout: {
+                    bundle_root: ROOT,
+                    source_schema:
+                        `${ORACLE_SCHEMA_DIR}/source_schema.json`,
                     target_schema:
                         `${POSTGRES_SCHEMA_DIR}/target_schema.json`,
+                    ddl: POSTGRES_DDL_DIR,
                     manifest: MANIFEST_PATH
-                },
-
-                next:
-                    result.status ===
-                        "not_recommended"
-                        ? null
-                        : {
-                            step: "table-management",
-                            method: "POST",
-                            path: `${ROOT}/table-management`,
-                            body: {
-                                source_database:
-                                    "oracle",
-                                target_database:
-                                    "postgresql",
-                                source_schema:
-                                    parsed.data.selected_schema,
-                                target_schema:
-                                    result.target_schema,
-                                user_query:
-                                    parsed.data.user_query
-                            }
-                        }
+                }
             });
 
         } catch (

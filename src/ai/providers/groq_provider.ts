@@ -17,7 +17,7 @@ const client = new Groq({
  * property insertion order upstream. Required for Groq's prefix cache to
  * reliably match the static portion of the prompt across requests.
  */
-export function stableStringify(
+function stableStringify(
     value: unknown
 ): string {
 

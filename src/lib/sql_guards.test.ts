@@ -7,7 +7,6 @@ import {
     extractCreateTableColumns,
     extractInsertTarget,
     extractProjection,
-    extractSelectColumns,
     extractSelectSources,
     extractSelectTables,
     findBindParameters,
@@ -202,7 +201,7 @@ test("extractInsertTarget reads table and explicit column list", () => {
     ]);
 });
 
-test("extractSelectTables and extractSelectColumns read the projection", () => {
+test("extractSelectTables and extractProjection read the projection", () => {
     const sql =
         "SELECT DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION_ID FROM HR.DEPARTMENTS;";
 
@@ -210,11 +209,10 @@ test("extractSelectTables and extractSelectColumns read the projection", () => {
         "HR.DEPARTMENTS"
     ]);
 
-    assert.deepEqual(extractSelectColumns(sql), [
-        "department_id",
-        "department_name",
-        "location_id"
-    ]);
+    assert.deepEqual(
+        extractProjection(sql).map((i) => i.column),
+        ["department_id", "department_name", "location_id"]
+    );
 });
 
 test("extractSelectSources resolves JOIN tables and their aliases", () => {

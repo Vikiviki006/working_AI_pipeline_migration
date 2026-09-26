@@ -3,6 +3,7 @@ import type {
 } from "express";
 
 import {
+    DesignRejectedError,
     ProviderOutputError,
     ProviderUnavailableError,
     RequestValidationError
@@ -12,6 +13,7 @@ import {
  * Maps a thrown error onto the right status code.
  *
  *   RequestValidationError   -> 400  caller sent something invalid
+ *   DesignRejectedError      -> 422  design stage refused the request
  *   ProviderOutputError      -> 502  the model produced unusable output
  *   ProviderUnavailableError -> 503  both providers are down
  *   anything else            -> 500
@@ -28,6 +30,22 @@ export function respondWithError(
         res.status(400).json({
             error: error.message,
             details: error.details
+        });
+
+        return;
+    }
+
+    if (
+        error instanceof DesignRejectedError
+    ) {
+        res.status(422).json({
+            error: error.message,
+            ...(
+                error.design as Record<
+                    string,
+                    unknown
+                >
+            )
         });
 
         return;

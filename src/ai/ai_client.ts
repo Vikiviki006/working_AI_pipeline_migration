@@ -6,6 +6,10 @@ import {
     generateWithGemini
 } from "./providers/gemini_provider.js";
 
+import {
+    ProviderUnavailableError
+} from "../lib/errors.js";
+
 import type {
     AIProviderName,
     AIRequest,
@@ -14,49 +18,78 @@ import type {
 
 export type AIProviderFailure = {
     provider: AIProviderName;
-    error: unknown;
+    message: string;
 };
 
 /*
- * Single entry point for every AI call. Groq is the primary provider because
- * its prefix cache makes the large static schema context cheap; Gemini is the
- * fallback. Both failures are reported so a caller can tell a total outage
- * apart from one provider being down.
+ * Single entry point for every AI call.
+ *
+ * Groq is primary: its prefix cache makes the large static schema context
+ * cheap, so the same schema reuses cached tokens. Gemini is the fallback.
+ *
+ * A total outage raises ProviderUnavailableError carrying both failures, so
+ * the route can answer 503 and tell the caller which providers were tried
+ * instead of collapsing it into an opaque 500.
  */
 export async function callAI(
     request: AIRequest,
     taskLabel: string
 ): Promise<AIResponse> {
 
+    const failures: AIProviderFailure[] = [];
+
     console.log(
         `→ ${taskLabel}: trying Groq`
     );
 
     try {
-        return await generateWithGemini(request);
+        return await generateWithGroq(request);
     } catch (groqError: unknown) {
         console.error(
             `→ ${taskLabel}: Groq failed, falling back to Gemini`
         );
         console.error(groqError);
+
+        failures.push(
+            describeFailure(
+                "groq",
+                groqError
+            )
+        );
     }
 
-    return await generateWithGroq(request);
+    try {
+        return await generateWithGemini(request);
+    } catch (geminiError: unknown) {
+        console.error(
+            `→ ${taskLabel}: Gemini failed`
+        );
+        console.error(geminiError);
+
+        failures.push(
+            describeFailure(
+                "gemini",
+                geminiError
+            )
+        );
+    }
+
+    throw new ProviderUnavailableError(
+        `${taskLabel}: every AI provider failed`,
+        failures
+    );
 }
 
-export function describeFailures(
-    failures: AIProviderFailure[]
-): string {
+function describeFailure(
+    provider: AIProviderName,
+    error: unknown
+): AIProviderFailure {
 
-    return failures
-        .map(
-            (
-                failure: AIProviderFailure
-            ): string =>
-                `${failure.provider}: ${failure.error instanceof Error
-                    ? failure.error.message
-                    : String(failure.error)
-                }`
-        )
-        .join(" | ");
+    return {
+        provider,
+        message:
+            error instanceof Error
+                ? error.message
+                : String(error)
+    };
 }

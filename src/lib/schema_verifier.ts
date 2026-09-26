@@ -11,6 +11,7 @@
 import type {
     ColumnMetadata,
     ForeignKeyMetadata,
+    PrimaryKeyMetadata,
     SchemaMetadata,
     TableMetadata
 } from "../types/types.js";
@@ -914,6 +915,139 @@ export function diffCounts(
         create: diff.created_tables.length,
         alter: diff.altered_tables.length,
         drop: diff.dropped_tables.length
+    };
+}
+
+/* ============================================================
+ * Build plan
+ * ========================================================== */
+
+export type TableBuildPlan = {
+    table: string;
+    columns: ColumnMetadata[];
+    primaryKey: PrimaryKeyMetadata;
+    foreignKeys: ForeignKeyMetadata[];
+};
+
+export type TypeMapping = {
+    table: string;
+    column: string;
+    oracle: string;
+    postgresql: string;
+};
+
+export type TargetBuildPlan = {
+    create: TableBuildPlan[];
+    drop: string[];
+    type_mappings: TypeMapping[];
+};
+
+/**
+ * The authoritative plan for materialising the target schema in PostgreSQL.
+ *
+ * The migration receives Oracle metadata and a designed target, and nothing
+ * else — there is no pre-existing PostgreSQL state to compare against, so the
+ * target database starts empty. That makes this a build, not a mutation:
+ *
+ *   - EVERY target table is created. A table that also exists in Oracle is
+ *     still created here; it is a new table in the new database, so treating
+ *     it as an ALTER would reference a relation that does not exist yet and
+ *     fail with 42P01.
+ *   - Oracle column types never survive into the DDL. They are already
+ *     carried by the CREATE TABLE, which is emitted once with the final type,
+ *     so no ALTER COLUMN ... TYPE and no USING cast is ever required.
+ *   - A source table absent from the target was removed by the design, so it
+ *     must not exist in the target and is listed for dropping.
+ *
+ * type_mappings is informational only: it records the Oracle -> PostgreSQL
+ * translation so the caller can audit it. It generates no statements.
+ */
+export function planTargetBuild(
+    source: SchemaMetadata,
+    target: SchemaMetadata
+): TargetBuildPlan {
+
+    const targetTables: Map<string, TableMetadata> =
+        indexTables(target);
+    const sourceTables: Map<string, TableMetadata> =
+        indexTables(source);
+
+    const create: TableBuildPlan[] = target.tables.map(
+        (
+            table: TableMetadata
+        ): TableBuildPlan => ({
+            table: table.tableName,
+            columns: table.columns,
+            primaryKey: table.primaryKey,
+            foreignKeys: table.foreignKeys
+        })
+    );
+
+    const drop: string[] = [];
+
+    for (
+        const [key, table] of sourceTables
+    ) {
+        if (!targetTables.has(key)) {
+            drop.push(table.tableName);
+        }
+    }
+
+    const typeMappings: TypeMapping[] = [];
+
+    for (
+        const table of target.tables
+    ) {
+        const sourceTable: TableMetadata | undefined =
+            sourceTables.get(
+                table.tableName.toLowerCase()
+            );
+
+        if (sourceTable === undefined) {
+            continue;
+        }
+
+        const sourceColumns: Map<string, ColumnMetadata> =
+            new Map<string, ColumnMetadata>(
+                sourceTable.columns.map(
+                    (
+                        column: ColumnMetadata
+                    ): [string, ColumnMetadata] => [
+                        column.columnName.toLowerCase(),
+                        column
+                    ]
+                )
+            );
+
+        for (
+            const column of table.columns
+        ) {
+            const sourceColumn: ColumnMetadata | undefined =
+                sourceColumns.get(
+                    column.columnName.toLowerCase()
+                );
+
+            if (
+                sourceColumn === undefined ||
+                sameType(sourceColumn) ===
+                    sameType(column)
+            ) {
+                continue;
+            }
+
+            typeMappings.push({
+                table: table.tableName,
+                column: column.columnName,
+                oracle: sourceColumn.dataType,
+                postgresql: column.dataType
+            });
+        }
+    }
+
+    return {
+        create,
+        drop,
+        type_mappings: typeMappings
     };
 }
 

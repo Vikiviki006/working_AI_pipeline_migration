@@ -7,10 +7,6 @@ import {
 } from "./routes/schemadesign_route.js";
 
 import {
-    tableManagementRouter
-} from "./routes/table_management_route.js";
-
-import {
     dataMigrationRouter
 } from "./routes/data_migration_route.js";
 
@@ -30,11 +26,12 @@ app.use(
 /*
  * Three-stage Oracle -> PostgreSQL migration pipeline.
  *
- *   1  POST /api/schema-design     Oracle metadata + split/merge request
- *                                  -> final PostgreSQL target schema
- *   2  POST /api/table-management  verified schema diff
- *                                  -> CREATE / ALTER / DROP
- *   3  POST /api/data-migration    paired Oracle SELECT + PostgreSQL INSERT
+ *   POST /api/schema-design     stage 1 + 2 chained: design the target
+ *                              schema, then verify it, diff it against Oracle
+ *                              and emit the CREATE / ALTER / DROP that
+ *                              applies it. A rejected design returns 422 with
+ *                              the design response alone.
+ *   POST /api/data-migration    paired Oracle SELECT + PostgreSQL INSERT
  *
  * Each stage returns its validated JSON plus the file path every statement
  * would occupy in the migration bundle.
@@ -42,7 +39,6 @@ app.use(
 app.use(
     "/api",
     schemaDesignRouter,
-    tableManagementRouter,
     dataMigrationRouter
 );
 
@@ -58,7 +54,6 @@ app.get(
             message: "Server is running",
             stages: [
                 "POST /api/schema-design",
-                "POST /api/table-management",
                 "POST /api/data-migration"
             ]
         });
@@ -91,28 +86,47 @@ app.get(
                     "current_design",
                     "user_query"
                 ],
-                output: [
-                    "status",
-                    "summary",
-                    "issue_reason",
-                    "target_schema"
-                ]
-            },
-
-            table_management: {
-                route: "POST /api/table-management",
-                input: [
-                    "source_schema",
-                    "target_schema",
-                    "user_query"
-                ],
-                output: [
-                    "source",
-                    "target",
-                    "table_management",
-                    "files",
-                    "diff",
-                    "summary"
+                stages: [
+                    {
+                        name: "schema_design",
+                        prompt:
+                            "schemadesign_prompt",
+                        input: [
+                            "selected_schema",
+                            "current_design",
+                            "user_query"
+                        ],
+                        output: [
+                            "status",
+                            "summary",
+                            "issue_reason",
+                            "target_schema"
+                        ]
+                    },
+                    {
+                        name: "table_management",
+                        prompt:
+                            "table_management_prompt",
+                        input: [
+                            "source_schema",
+                            "target_schema",
+                            "user_query"
+                        ],
+                        output: [
+                            "source",
+                            "target",
+                            "table_management",
+                            "files",
+                            "plan",
+                            "summary"
+                        ],
+                        build_mode:
+                            "The PostgreSQL target is created from empty, so every target table gets a CREATE TABLE and keys are added as separate ALTER TABLE ... ADD CONSTRAINT statements. No ALTER COLUMN, ADD COLUMN, DROP COLUMN, RENAME or USING cast is valid.",
+                        runs_when:
+                            "schema_design.status is 'recommended' or 'needs_change'",
+                        short_circuits_when:
+                            "schema_design.status is 'not_recommended' (HTTP 422, design response only)"
+                    }
                 ],
                 statement_kinds: [
                     "CREATE SCHEMA",
@@ -198,20 +212,20 @@ const server =
             );
             console.log("");
             console.log(
-                "  1  POST /api/schema-design     design the target schema"
+                "  POST /api/schema-design     design target schema, then"
             );
             console.log(
-                "  2  POST /api/table-management  CREATE / ALTER / DROP"
+                "                              verify + diff -> CREATE/ALTER/DROP"
             );
             console.log(
-                "  3  POST /api/data-migration    SELECT / INSERT templates"
+                "  POST /api/data-migration    SELECT / INSERT templates"
             );
             console.log("");
             console.log(
-                "      GET  /api/layout            artifact contract"
+                "  GET  /api/layout            artifact contract"
             );
             console.log(
-                "      GET  /health"
+                "  GET  /health"
             );
             console.log("");
         }

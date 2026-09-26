@@ -4,6 +4,8 @@ import {
     DDL_KINDS,
     ddlTargetTable,
     findBindParameters,
+    findInlinedTableConstraints,
+    findColumnMutation,
     indexName,
     containsDml,
     containsSelect,
@@ -21,7 +23,7 @@ const DDL_KIND_VALUES: string[] = [
  * (object existence, diff coverage) run in the service, which owns the
  * verified metadata.
  */
-export function buildTableManagementArraySchema(
+function buildTableManagementArraySchema(
     label: string
 ): z.ZodType<string[]> {
 
@@ -117,6 +119,52 @@ export function buildTableManagementArraySchema(
                             `${label}[${index}] must not contain a doubled semicolon`
                         );
                         continue;
+                    }
+
+                    /*
+                     * A CREATE TABLE may only declare columns. Keys are
+                     * separate ALTER TABLE ... ADD CONSTRAINT statements so a
+                     * foreign key can reference a table created later in the
+                     * array.
+                     */
+                    if (
+                        kind === "CREATE TABLE"
+                    ) {
+                        const inlined: string[] =
+                            findInlinedTableConstraints(
+                                sql
+                            );
+
+                        if (
+                            inlined.length > 0
+                        ) {
+                            at(
+                                `${label}[${index}] inlines a table constraint (${inlined.join(", ")}) in the CREATE TABLE body. Keys must be separate ALTER TABLE ... ADD CONSTRAINT statements.`
+                            );
+                            continue;
+                        }
+                    }
+
+                    /*
+                     * The target database is built from empty, so there is no
+                     * existing column to retype, add, drop or rename. Those
+                     * statements reference a relation that does not exist and
+                     * would fail at execution.
+                     */
+                    if (
+                        kind === "ALTER TABLE"
+                    ) {
+                        const mutation: string | null =
+                            findColumnMutation(sql);
+
+                        if (
+                            mutation !== null
+                        ) {
+                            at(
+                                `${label}[${index}] is a column mutation (${mutation}). The target database is created from empty, so columns are declared in CREATE TABLE and never altered.`
+                            );
+                            continue;
+                        }
                     }
 
                     /*

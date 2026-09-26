@@ -21,6 +21,8 @@ import {
     selectStatementSlug
 } from "../../lib/file_layout.js";
 
+import type { AIRequest } from "../../types/types.js";
+
 import {
     VALUES_PLACEHOLDER,
     bareName,
@@ -36,24 +38,41 @@ import type {
     SelectSource
 } from "../../lib/sql_guards.js";
 
-import type {
-    TableMetadata
-} from "../../types/types.js";
-
 import {
     ProviderOutputError,
     RequestValidationError
 } from "../../lib/errors.js";
 
 import type {
-    AIRequest,
-    AIResponse,
-    SchemaMetadata
+    AIProviderName,
+    SchemaMetadata,
+    SourceDatabase,
+    TableMetadata,
+    TargetDatabase
 } from "../../types/types.js";
+
+import type {
+    ArtifactFile
+} from "../../lib/file_layout.js";
 
 import type {
     DataMigrationRequest
 } from "../schemas/data_migration_request_schema.js";
+
+export type DataMigrationOutput = {
+    source: SourceDatabase;
+    target: TargetDatabase;
+    data_extraction: string[];
+    data_management: string[];
+    files: ArtifactFile[];
+    placeholder: string;
+    summary: string;
+};
+
+export type DataMigrationResult = {
+    provider: AIProviderName;
+    result: DataMigrationOutput;
+};
 
 /*
  * Route 3.
@@ -66,7 +85,7 @@ import type {
  */
 export async function generateDataMigrationQueries(
     input: DataMigrationRequest
-): Promise<AIResponse> {
+): Promise<DataMigrationResult> {
 
     const source: SchemaMetadata =
         requireSchema(
@@ -130,7 +149,7 @@ export async function generateDataMigrationQueries(
             "data_migration"
     };
 
-    const response: AIResponse =
+    const response =
         await callAI(
             aiRequest,
             "Data Migration"

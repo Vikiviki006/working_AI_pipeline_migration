@@ -44,9 +44,6 @@ export const POSTGRES_DDL_DIR = `${ROOT}/postgres/ddl`;
 export const POSTGRES_DML_DIR = `${ROOT}/postgres/dml`;
 export const MANIFEST_PATH = `${ROOT}/manifest.json`;
 
-export const SOURCE_SCHEMA_PATH =
-    `${ORACLE_SCHEMA_DIR}/source_schema.json`;
-
 export const TARGET_SCHEMA_PATH =
     `${POSTGRES_SCHEMA_DIR}/target_schema.json`;
 

@@ -28,8 +28,6 @@ export const DDL_KINDS = [
     "CREATE TYPE"
 ] as const;
 
-export type DdlKind = typeof DDL_KINDS[number];
-
 const DDL_KIND_SET: ReadonlySet<string> =
     new Set<string>(DDL_KINDS);
 
@@ -319,19 +317,6 @@ export function bareName(
     return last.toLowerCase();
 }
 
-export function schemaOf(
-    qualified: string
-): string {
-
-    const parts: string[] = qualified.split(".");
-
-    if (parts.length < 2) {
-        return "";
-    }
-
-    return parts[0].toLowerCase();
-}
-
 const CREATE_TABLE_PATTERN: RegExp = new RegExp(
     `^CREATE\\s+(?:UNLOGGED\\s+|TEMP\\s+|TEMPORARY\\s+)?TABLE\\s+` +
     `(?:IF\\s+NOT\\s+EXISTS\\s+)?(${IDENT}(?:\\.${IDENT})?)`,
@@ -438,10 +423,10 @@ export function objectName(
  * ========================================================== */
 
 /**
- * Returns the contents between the first top-level "(" and its matching ")".
+ * Returns the contents between the first "(" and its matching ")".
  * Used to read a CREATE TABLE column list and an INSERT column list.
  */
-export function readParenBlock(
+function readParenBlock(
     sql: string,
     fromIndex: number
 ): string | null {
@@ -486,7 +471,7 @@ export function readParenBlock(
 }
 
 /** Splits on commas that are not nested inside parentheses. */
-export function splitTopLevel(
+function splitTopLevel(
     body: string
 ): string[] {
 
@@ -596,12 +581,177 @@ export function extractCreateTableColumns(
     return columns;
 }
 
+/**
+ * Table-level constraint clauses found inside a CREATE TABLE body.
+ *
+ * The build plan requires keys to be separate ALTER TABLE ... ADD CONSTRAINT
+ * statements, because a foreign key may reference a table created later in
+ * the array. An inlined key would break that ordering, so these are reported
+ * and rejected.
+ */
+export function findInlinedTableConstraints(
+    sql: string
+): string[] {
+
+    const tableMatch: RegExpExecArray | null =
+        CREATE_TABLE_PATTERN.exec(
+            sql.replace(/;\s*$/, "").trim()
+        );
+
+    if (tableMatch === null) {
+        return [];
+    }
+
+    const body: string | null = readParenBlock(
+        sql.replace(/;\s*$/, "").trim(),
+        tableMatch[0].length
+    );
+
+    if (body === null) {
+        return [];
+    }
+
+    const found: string[] = [];
+
+    for (
+        const part of splitTopLevel(body)
+    ) {
+        if (TABLE_CONSTRAINT_STARTERS.test(part)) {
+            found.push(
+                part.split(/\s+/)[0]
+                    .toUpperCase()
+            );
+        }
+    }
+
+    return found;
+}
+
+const COLUMN_MUTATION_PATTERNS: ReadonlyArray<{
+    label: string;
+    pattern: RegExp;
+}> = [
+    {
+        label: "ADD COLUMN",
+        pattern: /\bADD\s+COLUMN\b/i
+    },
+    {
+        label: "DROP COLUMN",
+        pattern: /\bDROP\s+COLUMN\b/i
+    },
+    {
+        label: "ALTER COLUMN",
+        pattern: /\bALTER\s+COLUMN\b/i
+    },
+    {
+        label: "RENAME COLUMN",
+        pattern: /\bRENAME\s+COLUMN\b/i
+    },
+    {
+        label: "RENAME",
+        pattern: /\bRENAME\s+TO\b/i
+    }
+];
+
+/**
+ * Detects an ALTER TABLE that mutates a column, and names the mutation.
+ *
+ * Against a database being built from empty these are always invalid: there is
+ * no existing column to retype, add, drop or rename, so the statement fails
+ * with "relation does not exist". Returns null for a statement that only adds
+ * or drops a constraint, which is the form the build plan requires.
+ */
+export function findColumnMutation(
+    sql: string
+): string | null {
+
+    if (statementKind(sql) !== "ALTER TABLE") {
+        return null;
+    }
+
+    for (
+        const entry of COLUMN_MUTATION_PATTERNS
+    ) {
+        if (entry.pattern.test(sql)) {
+            return entry.label;
+        }
+    }
+
+    return null;
+}
+
 export type InsertTarget = {
     table: string;
     columns: string[];
 };
 
-/** Table and explicit column list of an INSERT statement. */
+type AlterAction =
+    | "ADD_COLUMN"
+    | "DROP_COLUMN"
+    | "ALTER_COLUMN"
+    | "ADD_CONSTRAINT"
+    | "DROP_CONSTRAINT";
+
+const ALTER_ACTION_PATTERNS: ReadonlyArray<{
+    action: AlterAction;
+    pattern: RegExp;
+}> = [
+    {
+        action: "ADD_COLUMN",
+        pattern:
+            /\bADD\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_$]*)/i
+    },
+    {
+        action: "DROP_COLUMN",
+        pattern:
+            /\bDROP\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_$]*)/i
+    },
+    {
+        action: "ALTER_COLUMN",
+        pattern:
+            /\bALTER\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_$]*)/i
+    },
+    {
+        action: "ADD_CONSTRAINT",
+        pattern:
+            /\bADD\s+CONSTRAINT\s+([A-Za-z_][A-Za-z0-9_$]*)/i
+    },
+    {
+        action: "DROP_CONSTRAINT",
+        pattern:
+            /\bDROP\s+CONSTRAINT\s+([A-Za-z_][A-Za-z0-9_$]*)/i
+    }
+];
+
+/**
+ * The specific thing an ALTER TABLE statement does, and the object it acts on.
+ *
+ * "ADD CONSTRAINT x PRIMARY KEY (...)" must be read as ADD_CONSTRAINT, not as
+ * an added column, so the constraint patterns are probed first.
+ */
+export function parseAlterTableAction(
+    sql: string
+): {
+        action: AlterAction;
+        object: string;
+    } | null {
+
+    for (
+        const entry of ALTER_ACTION_PATTERNS
+    ) {
+        const match: RegExpExecArray | null =
+            entry.pattern.exec(sql);
+
+        if (match !== null) {
+            return {
+                action: entry.action,
+                object: match[1]
+            };
+        }
+    }
+
+    return null;
+}
 export function extractInsertTarget(
     sql: string
 ): InsertTarget | null {
@@ -953,30 +1103,6 @@ export function extractProjection(
             };
         }
     );
-}
-
-/**
- * Columns listed in a SELECT's projection list, as bare names. Qualified
- * references lose their qualifier; computed items are excluded.
- */
-export function extractSelectColumns(
-    sql: string
-): string[] {
-
-    return extractProjection(sql)
-        .filter(
-            (
-                item: ProjectedColumn
-            ): boolean =>
-                !item.expression &&
-                item.column !== null
-        )
-        .map(
-            (
-                item: ProjectedColumn
-            ): string =>
-                item.column ?? ""
-        );
 }
 
 /* ============================================================

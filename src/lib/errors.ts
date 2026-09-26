@@ -45,3 +45,22 @@ export class ProviderUnavailableError extends Error {
         this.failures = failures;
     }
 }
+
+/*
+ * A structurally sound request that cannot be carried out because the design
+ * stage refused it. Neither the caller nor the provider misbehaved, so this is
+ * a 422 rather than a 400 or a 502. The full design response travels with the
+ * error so the caller sees the reason and the proposed alternative.
+ */
+export class DesignRejectedError extends Error {
+    public readonly design: unknown;
+
+    constructor(
+        message: string,
+        design: unknown
+    ) {
+        super(message);
+        this.name = "DesignRejectedError";
+        this.design = design;
+    }
+}

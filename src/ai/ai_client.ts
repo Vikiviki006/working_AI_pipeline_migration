@@ -1,10 +1,14 @@
 import {
+    generateWithGemini
+} from "./providers/gemini_provider.js";
+
+import {
     generateWithGroq
 } from "./providers/groq_provider.js";
 
 import {
-    generateWithGemini
-} from "./providers/gemini_provider.js";
+    generateWithOpenRouter
+} from "./providers/openrouter_provider.js";
 
 import {
     ProviderUnavailableError
@@ -16,55 +20,42 @@ import type {
     AIResponse
 } from "../types/types.js";
 
+
 export type AIProviderFailure = {
     provider: AIProviderName;
     message: string;
 };
 
-/*
- * Single entry point for every AI call.
- *
- * Groq is primary: its prefix cache makes the large static schema context
- * cheap, so the same schema reuses cached tokens. Gemini is the fallback.
- *
- * A total outage raises ProviderUnavailableError carrying both failures, so
- * the route can answer 503 and tell the caller which providers were tried
- * instead of collapsing it into an opaque 500.
- */
+
 export async function callAI(
     request: AIRequest,
     taskLabel: string
 ): Promise<AIResponse> {
 
-    const failures: AIProviderFailure[] = [];
+    const failures:
+        AIProviderFailure[] = [];
 
     console.log(
-        `→ ${taskLabel}: trying Groq`
+        `→ ${taskLabel}: trying Gemini`
     );
 
     try {
-        return await generateWithGroq(request);
-    } catch (groqError: unknown) {
-        console.error(
-            `→ ${taskLabel}: Groq failed, falling back to Gemini`
-        );
-        console.error(groqError);
 
-        failures.push(
-            describeFailure(
-                "groq",
-                groqError
-            )
+        return await generateWithGemini(
+            request
         );
-    }
 
-    try {
-        return await generateWithGemini(request);
-    } catch (geminiError: unknown) {
+    } catch (
+        geminiError: unknown
+    ) {
+
         console.error(
-            `→ ${taskLabel}: Gemini failed`
+            `→ ${taskLabel}: Gemini failed, falling back to Groq`
         );
-        console.error(geminiError);
+
+        console.error(
+            geminiError
+        );
 
         failures.push(
             describeFailure(
@@ -74,11 +65,93 @@ export async function callAI(
         );
     }
 
+
+    /*
+     * ============================================================
+     * 2. FIRST FALLBACK — GROQ
+     * ============================================================
+     */
+
+    console.log(
+        `→ ${taskLabel}: trying Groq`
+    );
+
+    try {
+
+        return await generateWithGroq(
+            request
+        );
+
+    } catch (
+        groqError: unknown
+    ) {
+
+        console.error(
+            `→ ${taskLabel}: Groq failed, falling back to OpenRouter`
+        );
+
+        console.error(
+            groqError
+        );
+
+        failures.push(
+            describeFailure(
+                "groq",
+                groqError
+            )
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * 3. SECOND FALLBACK — OPENROUTER
+     * ============================================================
+     */
+
+    console.log(
+        `→ ${taskLabel}: trying OpenRouter`
+    );
+
+    try {
+
+        return await generateWithOpenRouter(
+            request
+        );
+
+    } catch (
+        openRouterError: unknown
+    ) {
+
+        console.error(
+            `→ ${taskLabel}: OpenRouter failed`
+        );
+
+        console.error(
+            openRouterError
+        );
+
+        failures.push(
+            describeFailure(
+                "openrouter",
+                openRouterError
+            )
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * ALL PROVIDERS FAILED
+     * ============================================================
+     */
+
     throw new ProviderUnavailableError(
         `${taskLabel}: every AI provider failed`,
         failures
     );
 }
+
 
 function describeFailure(
     provider: AIProviderName,
@@ -87,6 +160,7 @@ function describeFailure(
 
     return {
         provider,
+
         message:
             error instanceof Error
                 ? error.message

@@ -48,7 +48,6 @@ The runtime migration flow is:
     PostgreSQL target table
 
 The LLM only generates the SELECT and INSERT templates.
-
 The migration engine executes them later.
 
 ==================================================

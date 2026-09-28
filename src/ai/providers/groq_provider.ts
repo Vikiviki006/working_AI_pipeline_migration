@@ -10,13 +10,6 @@ import type {
 const client = new Groq({
     apiKey: env.groqApiKey
 });
-
-/*
- * Deterministic JSON.stringify: sorts object keys recursively so the same
- * logical schema always serializes to the exact same string, regardless of
- * property insertion order upstream. Required for Groq's prefix cache to
- * reliably match the static portion of the prompt across requests.
- */
 function stableStringify(
     value: unknown
 ): string {
@@ -73,12 +66,6 @@ export async function generateWithGroq(
             content: request.systemPrompt
         });
     }
-
-    /*
-     * Static portion. Identical across requests for the same
-     * schema/designed output, so it forms the reusable cacheable
-     * prefix. Must stay ahead of the dynamic prompt.
-     */
     if (
         request.staticContext !== undefined &&
         request.staticContext.trim().length > 0
@@ -112,24 +99,6 @@ export async function generateWithGroq(
                 schema: request.responseSchema
             }
         }
-    });
-
-    const usage = response.usage;
-    const promptTokens = usage?.prompt_tokens ?? 0;
-    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
-    const cacheHitRate =
-        promptTokens > 0
-            ? (cachedTokens / promptTokens) * 100
-            : 0;
-
-    console.log("Groq usage:", {
-        model: env.groqModel,
-        prompt: request.responseSchemaName,
-        promptTokens,
-        cachedTokens,
-        cacheHitRate: `${cacheHitRate.toFixed(2)}%`,
-        completionTokens: usage?.completion_tokens ?? 0,
-        totalTokens: usage?.total_tokens ?? 0
     });
 
     const content = response.choices[0]?.message?.content;

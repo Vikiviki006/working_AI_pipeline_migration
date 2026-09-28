@@ -14,10 +14,6 @@ import type {
     InsertTarget
 } from "../../lib/sql_guards.js";
 
-/* ============================================================
- * data_extraction — Oracle side
- * ========================================================== */
-
 const dataExtractionArraySchema = z
     .array(z.string())
     .superRefine(

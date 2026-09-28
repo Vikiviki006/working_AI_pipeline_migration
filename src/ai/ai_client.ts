@@ -24,6 +24,7 @@ import type {
     AIResponse
 } from "../types/types.js";
 
+
 export type AIProviderFailure = {
     provider: AIProviderName;
     message: string;
@@ -170,6 +171,13 @@ export async function callAI(
             );
         }
     }
+
+
+    /*
+     * ============================================================
+     * ALL PROVIDERS FAILED
+     * ============================================================
+     */
 
 
     /*
@@ -482,6 +490,7 @@ function describeFailure(
     return {
 
         provider,
+
 
         message:
             error instanceof Error

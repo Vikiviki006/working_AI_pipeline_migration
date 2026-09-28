@@ -11,17 +11,31 @@ function getEnv(name: string): string {
     }
     return value;
 }
-export const env: EnvConfig = {
-    geminiApiKey:getEnv("GEMINI_API_KEY"),
-    geminiModel:getEnv("GEMINI_MODEL"),
-    groqApiKey:getEnv("GROQ_API_KEY"),
-    groqModel:getEnv("GROQ_MODEL")
+export const env = {
+    groqApiKey:
+        process.env.GROQ_API_KEY ?? "",
+
+    geminiApiKey:
+        process.env.GEMINI_API_KEY ?? "",
+
+    openrouterApiKey:
+        process.env.OPENROUTER_API_KEY ?? "",
+
+    groqModel:
+        process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
+
+    geminiModel:
+        process.env.GEMINI_MODEL ?? "",
+
+    openrouterModel:
+        process.env.OPENROUTER_MODEL ??
+        "openai/gpt-4.1-mini",
+
+    typesafeApiKey:
+        process.env.TYPESAFE_API_KEY ?? "",
+
+    port:
+        Number(
+            process.env.PORT ?? 3000
+        )
 };
-console.log("Gemini config:");
-console.log({
-    model: env.geminiModel,
-    keyLoaded: Boolean(env.geminiApiKey),
-    keyLength: env.geminiApiKey.length,
-    keyPrefix:
-        env.geminiApiKey.substring(0, 5) + "*****"
-});

@@ -1,4 +1,4 @@
-import Groq from "groq-sdk";
+import OpenAI from "openai";
 
 import { env } from "../../config/env.js";
 
@@ -8,8 +8,9 @@ import type {
 } from "../../types/types.js";
 
 
-const client = new Groq({
-    apiKey: env.groqApiKey
+const client = new OpenAI({
+    apiKey: env.openrouterApiKey,
+    baseURL: "https://openrouter.ai/api/v1"
 });
 
 
@@ -19,11 +20,6 @@ function buildUserPrompt(
 
     const sections: string[] = [];
 
-    /*
-     * GPT-OSS guidance:
-     * Keep instructions in the user message rather than
-     * sending a separate system message.
-     */
     if (
         request.systemPrompt.trim().length > 0
     ) {
@@ -33,12 +29,6 @@ function buildUserPrompt(
         );
     }
 
-
-    /*
-     * Static schema/context.
-     * Keep this before the dynamic request so the stable
-     * prefix remains cache-friendly.
-     */
     if (
         request.staticContext !== undefined &&
         request.staticContext.trim().length > 0
@@ -49,15 +39,10 @@ function buildUserPrompt(
         );
     }
 
-
-    /*
-     * Dynamic user request must come last.
-     */
     sections.push(
         "DYNAMIC REQUEST:\n" +
         request.dynamicPrompt.trim()
     );
-
 
     return sections.join(
         "\n\n"
@@ -65,26 +50,25 @@ function buildUserPrompt(
 }
 
 
-export async function generateWithGroq(
+export async function generateWithOpenRouter(
     request: AIRequest
 ): Promise<AIResponse> {
 
     const userPrompt =
         buildUserPrompt(request);
 
-
     console.log(
-        "→ Groq model:",
-        env.groqModel
+        "→ OpenRouter model:",
+        env.openrouterModel
     );
 
     console.log(
-        "→ Groq schema:",
+        "→ OpenRouter schema:",
         request.responseSchemaName
     );
 
     console.log(
-        "→ Groq prompt length:",
+        "→ OpenRouter prompt length:",
         userPrompt.length
     );
 
@@ -93,7 +77,7 @@ export async function generateWithGroq(
         await client.chat.completions.create({
 
             model:
-                env.groqModel,
+                env.openrouterModel,
 
             messages: [
                 {
@@ -102,10 +86,6 @@ export async function generateWithGroq(
                 }
             ],
 
-            /*
-             * Strict Structured Outputs.
-             * GPT-OSS 120B supports strict JSON Schema mode.
-             */
             response_format: {
                 type: "json_schema",
 
@@ -120,19 +100,6 @@ export async function generateWithGroq(
                 }
             },
 
-            /*
-             * Lower reasoning effort keeps this
-             * schema-generation task more efficient.
-             */
-            reasoning_effort: "low",
-
-            /*
-             * Your schema-design response can contain
-             * multiple tables and many columns.
-             *
-             * 1024 is often too small for this type of
-             * structured response.
-             */
             max_completion_tokens: 4096
         });
 
@@ -147,7 +114,7 @@ export async function generateWithGroq(
         content.trim().length === 0
     ) {
         throw new Error(
-            "Groq returned an empty response"
+            "OpenRouter returned an empty response"
         );
     }
 
@@ -163,13 +130,13 @@ export async function generateWithGroq(
     } catch {
 
         throw new Error(
-            "Groq returned invalid JSON"
+            "OpenRouter returned invalid JSON"
         );
     }
 
 
     return {
-        provider: "groq",
+        provider: "openrouter",
         result: parsed
     };
 }

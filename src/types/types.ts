@@ -7,7 +7,8 @@ export type EnvConfig = {
 
 export type AIProviderName =
     | "groq"
-    | "gemini";
+    | "gemini"
+    | "openrouter";
 
 export type SourceDatabase = "oracle";
 

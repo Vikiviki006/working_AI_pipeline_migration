@@ -23,30 +23,6 @@ import {
 export const dataMigrationRouter =
     Router();
 
-/*
- * Stage 3 of 3.
- *
- * POST /api/data-migration
- *
- * Input:
- *   source_schema  Oracle metadata
- *   target_schema  PostgreSQL metadata
- *   user_query     optional filter / scope instruction
- *
- * Output:
- *   {
- *     "source": "oracle",
- *     "target": "postgresql",
- *     "data_extraction": [ "SELECT DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION_ID FROM HR.DEPARTMENTS;" ],
- *     "data_management": [ "INSERT INTO public.departments (department_id, department_name, location_id) VALUES {VALUES_PLACEHOLDER};" ],
- *     "files": [ ... ],
- *     "placeholder": "{VALUES_PLACEHOLDER}",
- *     "summary": "..."
- *   }
- *
- * data_extraction[i] feeds data_management[i]. The two arrays are parallel
- * lists and are always the same length.
- */
 dataMigrationRouter.post(
     "/data-migration",
 

@@ -16,6 +16,7 @@ import {
 } from "../../lib/file_layout.js";
 
 import type {
+    AIProviderName,
     SchemaDesignInput,
     SourceDatabase,
     TargetDatabase
@@ -33,13 +34,6 @@ export type DesignStatus =
     | "recommended"
     | "needs_change"
     | "not_recommended";
-
-/*
- * Both "recommended" and "needs_change" carry a complete, valid target_schema:
- * the second simply means the design was corrected on the way through, and
- * the correction is what should be applied. Only "not_recommended" applies
- * nothing, so it is the one status with nothing left to diff or translate.
- */
 export const PROCEEDING_DESIGN_STATUSES: ReadonlySet<DesignStatus> =
     new Set<DesignStatus>([
         "recommended",
@@ -92,21 +86,22 @@ export type SchemaMigrationResult = {
 };
 
 /*
- * The two chained stages behind POST /api/schema-design.
+ * The schema-design pipeline.
  *
- *   1. Design the PostgreSQL target schema from the Oracle metadata and the
- *      user's split / merge request.
- *   2. Verify that design, diff it against Oracle, and emit the
- *      CREATE / ALTER / DROP that applies it.
- *
- * A rejected design short-circuits: there is no target schema to diff, so the
- * design response is returned on its own as the error.
+ * The design stage runs first because it is the only stage that makes design
+ * decisions; the DDL stage is a pure translation of its output. Both run on the
+ * provider Jev picked for this request, so the whole pipeline costs one routing
+ * round-trip rather than one per stage.
  */
 export async function runSchemaMigration(
-    input: SchemaDesignInput
+    input: SchemaDesignInput,
+    provider?: AIProviderName
 ): Promise<SchemaMigrationResult> {
 
-    const design = await generateSchemaDesign(input);
+    const design = await generateSchemaDesign(
+        input,
+        provider
+    );
 
     const designed =
         design.result as DesignedSchema;
@@ -144,7 +139,8 @@ export async function runSchemaMigration(
                 designed.target_schema,
 
             user_query: input.user_query
-        }
+        },
+        provider
     );
 
     const ddlFiles: ArtifactFile[] =

@@ -74,15 +74,6 @@ export type DataMigrationResult = {
     result: DataMigrationOutput;
 };
 
-/*
- * Route 3.
- *
- * Produces the paired Oracle SELECT / PostgreSQL INSERT templates. Both halves
- * are cross-checked against the real metadata: a SELECT may only read tables
- * and columns that exist in Oracle, and an INSERT may only write tables and
- * columns that exist in PostgreSQL. Row counts per column list must line up, or
- * the pair is rejected as unusable.
- */
 export async function generateDataMigrationQueries(
     input: DataMigrationRequest
 ): Promise<DataMigrationResult> {

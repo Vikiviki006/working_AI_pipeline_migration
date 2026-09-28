@@ -2,6 +2,8 @@ import "./config/env.js";
 
 import express from "express";
 
+import { env } from "./config/env.js";
+
 import {
     schemaDesignRouter
 } from "./routes/schemadesign_route.js";
@@ -22,20 +24,6 @@ app.use(
         limit: "10mb"
     })
 );
-
-/*
- * Three-stage Oracle -> PostgreSQL migration pipeline.
- *
- *   POST /api/schema-design     stage 1 + 2 chained: design the target
- *                              schema, then verify it, diff it against Oracle
- *                              and emit the CREATE / ALTER / DROP that
- *                              applies it. A rejected design returns 422 with
- *                              the design response alone.
- *   POST /api/data-migration    paired Oracle SELECT + PostgreSQL INSERT
- *
- * Each stage returns its validated JSON plus the file path every statement
- * would occupy in the migration bundle.
- */
 app.use(
     "/api",
     schemaDesignRouter,
@@ -44,10 +32,7 @@ app.use(
 
 app.get(
     "/health",
-    (
-        _req,
-        res
-    ): void => {
+    (_req,res): void => {
 
         res.status(200).json({
             success: true,
@@ -55,21 +40,24 @@ app.get(
             stages: [
                 "POST /api/schema-design",
                 "POST /api/data-migration"
-            ]
+            ],
+            guards: [
+                "Query scope guard (POST /api/schema-design)",
+                "Build-plan cross-check (POST /api/schema-design)",
+                "SQL statement cross-check (both routes)"
+            ],
+            routing: {
+                model: env.jevModel,
+                transport: "openrouter /api/alpha/decisions",
+                scope: "one decision per request, pinned across stages"
+            }
         });
     }
 );
 
-/*
- * Describes the bundle layout and the artifact contract, so a consumer does
- * not have to read the source to discover the folder names.
- */
 app.get(
     "/api/layout",
-    (
-        _req,
-        res
-    ): void => {
+    (_req,res): void => {
 
         res.status(200).json({
             bundle_root: ROOT,
@@ -87,6 +75,57 @@ app.get(
                     "user_query"
                 ],
                 stages: [
+                    {
+                        name: "query_scope_intent",
+                        prompt:
+                            "query_scope_intent_prompt",
+                        input: [
+                            "oracle schema digest",
+                            "current_design",
+                            "user_query"
+                        ],
+                        output: [
+                            "scope",
+                            "intent",
+                            "reason",
+                            "resolved_user_query",
+                            "operations"
+                        ],
+                        runs_before:
+                            "jev routing",
+                        short_circuits_when:
+                            "scope is 'OUT_OF_SCOPE' (HTTP 422, OUT_OF_SCOPE_REQUEST) or 'UNCERTAIN' (HTTP 422, UNCERTAIN_DATABASE_REQUEST)",
+                        notes: [
+                            "resolved_user_query is the request rewritten as one unambiguous instruction, with every pronoun resolved against the Oracle metadata.",
+                            "operations is the discrete work breakdown, used by the routing step.",
+                            "The Oracle metadata reaches this stage as a digest, not as the raw document."
+                        ]
+                    },
+                    {
+                        name: "jev routing",
+                        prompt:
+                            "inline in routes/schemadesign_route.ts",
+                        input: [
+                            "resolved_user_query",
+                            "operations",
+                            "oracle schema digest"
+                        ],
+                        output: [
+                            "provider",
+                            "confidence",
+                            "workload",
+                            "probabilities"
+                        ],
+                        transport:
+                            "OpenRouter /api/alpha/decisions on OPENROUTER_API_KEY, model JEV_MODEL. Not /chat/completions: Jev is a decisions model and that endpoint rejects it.",
+                        runs_before:
+                            "schema_design",
+                        notes: [
+                            "Called once per request, not once per stage. The chosen provider is pinned onto schema_design and table_management.",
+                            "Bounded by a 10s timeout. A Jev failure is not a request failure: nothing is pinned and callAI chooses in code.",
+                            "This output is a preference, not a permission. The guards apply unchanged."
+                        ]
+                    },
                     {
                         name: "schema_design",
                         prompt:
@@ -200,34 +239,15 @@ const server =
     app.listen(
         PORT,
         (): void => {
-
-            console.log("");
-            console.log("==============================");
-            console.log(
-                "ORACLE -> POSTGRES MIGRATION AI"
-            );
-            console.log("==============================");
             console.log(
                 `Server running on http://localhost:${PORT}`
             );
-            console.log("");
             console.log(
                 "  POST /api/schema-design     design target schema, then"
             );
             console.log(
-                "                              verify + diff -> CREATE/ALTER/DROP"
-            );
-            console.log(
                 "  POST /api/data-migration    SELECT / INSERT templates"
             );
-            console.log("");
-            console.log(
-                "  GET  /api/layout            artifact contract"
-            );
-            console.log(
-                "  GET  /health"
-            );
-            console.log("");
         }
     );
 
@@ -247,12 +267,6 @@ server.on(
                 `Port ${PORT} is already in use. Stop the other process or set PORT to a free port.`
             );
         }
-
-        /*
-         * "listening" is emitted asynchronously, so a bind failure surfaces
-         * here after the startup banner has already printed. Exiting
-         * non-zero keeps a failed bind from looking like a healthy server.
-         */
         process.exit(1);
     }
 );

@@ -368,6 +368,149 @@ export function columnNames(
 }
 
 /* ============================================================
+ * Schema digest
+ * ========================================================== */
+
+/*
+ * The scope guard and the Jev router need to know WHICH objects exist and HOW
+ * MUCH work a request implies. Neither needs Oracle data lengths, precision,
+ * scale, defaults or column ordinals - and every character of that metadata is
+ * paid for on every model call that carries it.
+ *
+ * So the raw document is reduced to a digest before it enters a prompt. This
+ * is the largest single latency lever in the pipeline: a metadata document
+ * pretty-printed with JSON.stringify(value, null, 2) is roughly a third larger
+ * than the compact form, and the guard used to ship the whole document to
+ * classify a single sentence.
+ *
+ * The digest is advisory. Nothing downstream may treat it as authoritative -
+ * the full metadata is still what the verifier and the SQL guards read.
+ */
+
+/*
+ * Table count is the realistic blowup axis in migration metadata, so it is the
+ * one that gets capped. Column lists are left complete: truncating a column
+ * list would stop the guard resolving a name the user actually typed.
+ */
+export const DIGEST_MAX_TABLES: number =
+    40;
+
+export type TableDigest = {
+    name: string;
+    columns: string[];
+    primary_key: string[];
+    foreign_keys: number;
+};
+
+export type SchemaDigest = {
+    table_count: number;
+    column_count: number;
+    primary_key_count: number;
+    foreign_key_count: number;
+    referenced_tables: string[];
+    tables: TableDigest[];
+    truncated: boolean;
+};
+
+/**
+ * Builds a compact, bounded description of a schema document.
+ *
+ * Never throws and never fails: a document this cannot parse yields a digest
+ * with zero tables rather than an exception, because a malformed schema is the
+ * verifier's problem to report, not the classifier's to refuse.
+ */
+export function buildSchemaDigest(
+    raw: unknown
+): SchemaDigest {
+
+    const parsed: ParseResult<SchemaMetadata> =
+        parseSchema(raw);
+
+    const tables: TableMetadata[] =
+        parsed.value.tables;
+
+    const included: TableMetadata[] =
+        tables.slice(
+            0,
+            DIGEST_MAX_TABLES
+        );
+
+    const referenced: Set<string> =
+        new Set<string>();
+
+    const digested: TableDigest[] = [];
+
+    let columnCount: number = 0;
+    let primaryKeyCount: number = 0;
+    let foreignKeyCount: number = 0;
+
+    for (
+        const table of tables
+    ) {
+        columnCount += table.columns.length;
+
+        if (
+            table.primaryKey.columns.length > 0
+        ) {
+            primaryKeyCount += 1;
+        }
+
+        foreignKeyCount +=
+            table.foreignKeys.length;
+
+        for (
+            const fk of table.foreignKeys
+        ) {
+            referenced.add(
+                fk.referencedTable
+            );
+        }
+    }
+
+    for (
+        const table of included
+    ) {
+
+        digested.push(
+            {
+                name: table.tableName,
+
+                columns: table.columns.map(
+                    (
+                        column: ColumnMetadata
+                    ): string =>
+                        column.columnName
+                ),
+
+                primary_key:
+                    table.primaryKey.columns,
+
+                foreign_keys:
+                    table.foreignKeys.length
+            }
+        );
+    }
+
+    return {
+        table_count: tables.length,
+        column_count: columnCount,
+        primary_key_count: primaryKeyCount,
+        foreign_key_count: foreignKeyCount,
+
+        referenced_tables:
+            Array.from(
+                referenced
+            ).sort(),
+
+        tables: digested,
+
+        truncated:
+            tables.length >
+                DIGEST_MAX_TABLES
+    };
+}
+
+/* ============================================================
  * Structural verification
  * ========================================================== */
 

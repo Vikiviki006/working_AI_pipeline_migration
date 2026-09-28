@@ -98,7 +98,8 @@ export type TableManagementInput = {
  * Runs inline behind POST /api/schema-design; there is no separate endpoint.
  */
 export async function generateTableManagement(
-    input: TableManagementInput
+    input: TableManagementInput,
+    provider?: AIProviderName
 ): Promise<TableManagementResult> {
 
     const source: SchemaMetadata =
@@ -203,7 +204,8 @@ export async function generateTableManagement(
     const response =
         await callAI(
             aiRequest,
-            "Table Management"
+            "Table Management",
+            provider
         );
 
     const validated =

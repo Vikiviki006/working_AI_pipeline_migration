@@ -1,8 +1,16 @@
+/*
+ * The resolved environment, as config/env.ts exposes it. Listed here so the
+ * shape a provider may rely on is visible in one place.
+ */
 export type EnvConfig = {
-    geminiApiKey: string;
-    geminiModel: string;
     groqApiKey: string;
+    geminiApiKey: string;
+    openrouterApiKey: string;
     groqModel: string;
+    geminiModel: string;
+    openrouterModel: string;
+    jevModel: string;
+    port: number;
 };
 
 export type AIProviderName =
@@ -10,16 +18,37 @@ export type AIProviderName =
     | "gemini"
     | "openrouter";
 
+/*
+ * Providers in the order they are tried once the pinned provider has failed.
+ * Indexed by the preferred provider so a fallback never repeats a provider
+ * that has already been tried.
+ */
+export const FALLBACK_ORDER: Readonly<
+    Record<
+        AIProviderName,
+        readonly AIProviderName[]
+    >
+> = {
+    groq: [
+        "gemini",
+        "openrouter"
+    ],
+
+    gemini: [
+        "groq",
+        "openrouter"
+    ],
+
+    openrouter: [
+        "gemini",
+        "groq"
+    ]
+};
+
 export type SourceDatabase = "oracle";
 
 export type TargetDatabase = "postgresql";
 
-/*
- * A provider-agnostic AI call description.
- *
- * The provider knows nothing about the task. The service supplies
- * the prompt, the static cacheable context and the response schema.
- */
 export type AIRequest = {
     systemPrompt: string;
     staticContext?: string;

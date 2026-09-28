@@ -12,7 +12,12 @@ import {
     SchemaDesignResponse
 } from "../schemas/schemadesign_zod.js";
 
+import {
+    ProviderOutputError
+} from "../../lib/errors.js";
+
 import type {
+    AIProviderName,
     AIRequest,
     AIResponse,
     SchemaDesignInput
@@ -24,7 +29,8 @@ import type {
  * decisions; every later stage is a pure translation of its output.
  */
 export async function generateSchemaDesign(
-    input: SchemaDesignInput
+    input: SchemaDesignInput,
+    provider?: AIProviderName
 ): Promise<AIResponse> {
 
     const staticContext: string =
@@ -54,7 +60,8 @@ export async function generateSchemaDesign(
     const response: AIResponse =
         await callAI(
             aiRequest,
-            "Schema Design"
+            "Schema Design",
+            provider
         );
 
     const validated =
@@ -70,8 +77,15 @@ export async function generateSchemaDesign(
             validated.error.format()
         );
 
-        throw new Error(
-            `${response.provider} returned a schema design that does not match the expected structure`
+        /*
+         * The model misbehaved, not the caller, so this is a provider failure.
+         * A bare Error here would collapse into a 500 and hide which side of
+         * the pipeline went wrong.
+         */
+        throw new ProviderOutputError(
+            `${response.provider} returned a schema design that does not match the expected structure`,
+            response.provider,
+            validated.error.format()
         );
     }
 

@@ -11,11 +11,6 @@ const client = new GoogleGenAI({
     apiKey: env.geminiApiKey
 });
 
-/*
- * Provider-agnostic call. The provider knows nothing about the task:
- * the service supplies systemPrompt, staticContext, dynamicPrompt and
- * responseSchema. Task-specific Zod validation stays in the service.
- */
 export async function generateWithGemini(
     request: AIRequest
 ): Promise<AIResponse> {

@@ -1,23 +1,23 @@
 import {
     callAI
-} from "../ai_client.js";
+} from "../aiClient.js";
 
 import {
     QUERY_SCOPE_INTENT_SYSTEM_PROMPT
-} from "../prompts/query_scope_intent_prompt.js";
+} from "../prompts/queryScopeIntentPrompt.js";
 
 import {
     QueryScopeIntentSchema
-} from "../schemas/query_scope_intent_zod.js";
+} from "../schemas/queryScopeIntentZod.js";
 
 import {
     QUERY_SCOPE_INTENT_SCHEMA_NAME,
     queryScopeIntentJsonSchema
-} from "../schemas/query_scope_intent_schema.js";
+} from "../schemas/queryScopeIntentSchema.js";
 
 import {
     buildSchemaDigest
-} from "../../lib/schema_verifier.js";
+} from "../../lib/schemaVerifier.js";
 
 import {
     ProviderOutputError
@@ -30,11 +30,11 @@ import type {
 
 import type {
     QueryScopeIntent
-} from "../schemas/query_scope_intent_zod.js";
+} from "../schemas/queryScopeIntentZod.js";
 
 import type {
     SchemaDigest
-} from "../../lib/schema_verifier.js";
+} from "../../lib/schemaVerifier.js";
 
 export type QueryScopeGuardInput = {
     selected_schema: unknown;
@@ -44,6 +44,16 @@ export type QueryScopeGuardInput = {
 
 export type QueryScopeGuardResult = {
     provider: AIProviderName;
+
+    /*
+     * The model that answered, when the provider named one. The guard is
+     * unpinned, so it may have been served by any provider - and on a large
+     * schema the in-code default can put it on OpenRouter. Reporting it is what
+     * makes the first stage of a request traceable on the same terms as the two
+     * that follow it.
+     */
+    model?: string;
+
     result: QueryScopeIntent;
     digest: SchemaDigest;
 };
@@ -150,6 +160,9 @@ export async function checkQueryScopeIntent(
     return {
         provider:
             response.provider,
+
+        model:
+            response.model,
 
         result:
             validated.data,

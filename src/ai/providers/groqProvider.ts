@@ -170,6 +170,9 @@ export async function generateWithGroq(
 
     return {
         provider: "groq",
+        model:
+            env.groqModel,
+
         result: parsed
     };
 }

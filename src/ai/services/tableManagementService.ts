@@ -1,13 +1,13 @@
-import { callAI } from "../ai_client.js";
+import { callAI } from "../aiClient.js";
 
 import {
     TABLE_MANAGEMENT_SYSTEM_PROMPT
-} from "../prompts/table_management_prompt.js";
+} from "../prompts/tableManagementPrompt.js";
 
 import {
     tableManagementJsonSchema,
     tableManagementResponseSchema
-} from "../schemas/table_management_schema.js";
+} from "../schemas/tableManagementSchema.js";
 
 import {
     columnNames,
@@ -15,12 +15,12 @@ import {
     parseSchema,
     planTargetBuild,
     verifyTargetSchema
-} from "../../lib/schema_verifier.js";
+} from "../../lib/schemaVerifier.js";
 
 import {
     buildFileManifest,
     describeDdlStatement
-} from "../../lib/file_layout.js";
+} from "../../lib/fileLayout.js";
 
 import {
     ddlTargetTable,
@@ -29,7 +29,7 @@ import {
     normalizeSql,
     splitSqlStatements,
     statementKind
-} from "../../lib/sql_guards.js";
+} from "../../lib/sqlGuards.js";
 
 import {
     ProviderOutputError,
@@ -39,6 +39,7 @@ import {
 import type {
     AIProviderName,
     AIRequest,
+    RoutingDecision,
     SchemaMetadata,
     SourceDatabase,
     TableMetadata,
@@ -49,11 +50,11 @@ import type {
     TableBuildPlan,
     TargetBuildPlan,
     TypeMapping
-} from "../../lib/schema_verifier.js";
+} from "../../lib/schemaVerifier.js";
 
 import type {
     ArtifactFile
-} from "../../lib/file_layout.js";
+} from "../../lib/fileLayout.js";
 
 export type TableManagementOutput = {
     source: SourceDatabase;
@@ -70,6 +71,15 @@ export type TableManagementOutput = {
 
 export type TableManagementResult = {
     provider: AIProviderName;
+
+    /*
+     * The model that produced the DDL, when the provider named one. Reported for
+     * the same reason as on the design stage: on OpenRouter it is the model the
+     * router chose for this workload, and a request that fell through the chain
+     * to a different provider generated on a different model.
+     */
+    model?: string;
+
     result: TableManagementOutput;
 };
 
@@ -99,7 +109,7 @@ export type TableManagementInput = {
  */
 export async function generateTableManagement(
     input: TableManagementInput,
-    provider?: AIProviderName
+    decision?: RoutingDecision
 ): Promise<TableManagementResult> {
 
     const source: SchemaMetadata =
@@ -138,6 +148,10 @@ export async function generateTableManagement(
     const plan: TargetBuildPlan =
         planTargetBuild(source, target);
 
+    /*
+     * Compact, not pretty-printed. Whitespace is billed as input tokens and
+     * buys the model nothing; the target schema is the bulk of this prompt.
+     */
     const staticContext: string =
         JSON.stringify(
             {
@@ -153,9 +167,7 @@ export async function generateTableManagement(
                 },
 
                 target_schema: target
-            },
-            null,
-            2
+            }
         );
 
     let expected: number = plan.create.length;
@@ -205,7 +217,7 @@ export async function generateTableManagement(
         await callAI(
             aiRequest,
             "Table Management",
-            provider
+            decision
         );
 
     const validated =
@@ -292,7 +304,13 @@ export async function generateTableManagement(
     );
 
     return {
-        provider: response.provider,
+
+        provider:
+            response.provider,
+
+        model:
+            response.model,
+
         result: {
             source: revalidated.data.source,
             target: revalidated.data.target,

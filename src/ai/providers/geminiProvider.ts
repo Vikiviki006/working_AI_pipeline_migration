@@ -30,6 +30,21 @@ export async function generateWithGemini(
         )
         .join("\n\n");
 
+    console.log(
+        "→ Gemini model:",
+        env.geminiModel
+    );
+
+    console.log(
+        "→ Gemini schema:",
+        request.responseSchemaName
+    );
+
+    console.log(
+        "→ Gemini prompt length:",
+        userPrompt.length
+    );
+
     const response = await client.models.generateContent({
         model: env.geminiModel,
         contents: userPrompt,
@@ -58,6 +73,7 @@ export async function generateWithGemini(
 
     return {
         provider: "gemini",
+        model: env.geminiModel,
         result: parsed
     };
 }

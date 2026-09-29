@@ -2,7 +2,7 @@
  * The guard's answer, validated after it comes back from a provider.
  *
  * Structure and vocabulary are inherited from the JSON Schema in
- * query_scope_intent_schema.ts so the shape the model was asked for and the
+ * queryScopeIntentSchema.ts so the shape the model was asked for and the
  * shape the answer is held to are the same one. This file adds what JSON
  * Schema cannot express: the scope/intent/operations pairing rules, and the
  * guarantee that a resolved query exists whenever the pipeline is going to
@@ -15,7 +15,7 @@ import {
     QUERY_OPERATION_VERBS,
     QUERY_SCOPE_INTENT_VALUES,
     QUERY_SCOPE_VALUES
-} from "./query_scope_intent_schema.js";
+} from "./queryScopeIntentSchema.js";
 
 export const QueryOperationSchema =
     z.object(

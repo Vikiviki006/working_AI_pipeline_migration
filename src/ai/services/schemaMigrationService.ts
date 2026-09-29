@@ -1,10 +1,10 @@
 import {
     generateSchemaDesign
-} from "./schema_design_service.js";
+} from "./schemaDesignService.js";
 
 import {
     generateTableManagement
-} from "./table_management_service.js";
+} from "./tableManagementService.js";
 
 import {
     DesignRejectedError
@@ -13,10 +13,11 @@ import {
 import {
     MANIFEST_PATH,
     TARGET_SCHEMA_PATH
-} from "../../lib/file_layout.js";
+} from "../../lib/fileLayout.js";
 
 import type {
     AIProviderName,
+    RoutingDecision,
     SchemaDesignInput,
     SourceDatabase,
     TargetDatabase
@@ -24,11 +25,11 @@ import type {
 
 import type {
     TableManagementOutput
-} from "./table_management_service.js";
+} from "./tableManagementService.js";
 
 import type {
     ArtifactFile
-} from "../../lib/file_layout.js";
+} from "../../lib/fileLayout.js";
 
 export type DesignStatus =
     | "recommended"
@@ -66,7 +67,16 @@ export type CombinedFileManifestEntry = {
 
 export type SchemaMigrationResult = {
     schema_design: {
-        provider: string;
+        provider: AIProviderName;
+
+        /*
+         * The model that stage actually generated on, or null when the provider
+         * could not name one. Carried per stage rather than once for the
+         * pipeline, because the two stages can be served by different providers
+         * if one of them failed and fell through the chain.
+         */
+        model: string | null;
+
         status: DesignStatus;
         summary: string;
         issue_reason: string;
@@ -74,7 +84,8 @@ export type SchemaMigrationResult = {
     };
 
     table_management: {
-        provider: string;
+        provider: AIProviderName;
+        model: string | null;
         source: SourceDatabase;
         target: TargetDatabase;
         table_management: string[];
@@ -90,17 +101,21 @@ export type SchemaMigrationResult = {
  *
  * The design stage runs first because it is the only stage that makes design
  * decisions; the DDL stage is a pure translation of its output. Both run on the
- * provider Jev picked for this request, so the whole pipeline costs one routing
+ * decision Jev made for this request, so the whole pipeline costs one routing
  * round-trip rather than one per stage.
+ *
+ * The decision is passed whole rather than just its provider, because the
+ * OpenRouter model travels with it. Every stage re-asks nothing; the model a
+ * request generates on is settled before the first prompt is sent.
  */
 export async function runSchemaMigration(
     input: SchemaDesignInput,
-    provider?: AIProviderName
+    decision?: RoutingDecision
 ): Promise<SchemaMigrationResult> {
 
     const design = await generateSchemaDesign(
         input,
-        provider
+        decision
     );
 
     const designed =
@@ -115,6 +130,10 @@ export async function runSchemaMigration(
             `Schema design was not applied (status: ${designed.status})`,
             {
                 provider: design.provider,
+
+                model:
+                    design.model ?? null,
+
                 status: designed.status,
                 summary: designed.summary,
                 issue_reason: designed.issue_reason,
@@ -140,7 +159,7 @@ export async function runSchemaMigration(
 
             user_query: input.user_query
         },
-        provider
+        decision
     );
 
     const ddlFiles: ArtifactFile[] =
@@ -149,6 +168,10 @@ export async function runSchemaMigration(
     return {
         schema_design: {
             provider: design.provider,
+
+            model:
+                design.model ?? null,
+
             status: designed.status,
             summary: designed.summary,
             issue_reason: designed.issue_reason,
@@ -157,6 +180,10 @@ export async function runSchemaMigration(
 
         table_management: {
             provider: management.provider,
+
+            model:
+                management.model ?? null,
+
             source: management.result.source,
             target: management.result.target,
             table_management:

@@ -1,14 +1,14 @@
 import {
     generateWithGemini
-} from "./providers/gemini_provider.js";
+} from "./providers/geminiProvider.js";
 
 import {
     generateWithGroq
-} from "./providers/groq_provider.js";
+} from "./providers/groqProvider.js";
 
 import {
     generateWithOpenRouter
-} from "./providers/openrouter_provider.js";
+} from "./providers/openrouterProvider.js";
 
 import {
     ProviderUnavailableError
@@ -21,7 +21,8 @@ import {
 import type {
     AIProviderName,
     AIRequest,
-    AIResponse
+    AIResponse,
+    RoutingDecision
 } from "../types/types.js";
 
 
@@ -33,11 +34,18 @@ export type AIProviderFailure = {
 /*
  * The provider chain.
  *
- * The caller may pin a provider, in which case it is tried first and the rest
- * of the chain is only reached if it fails. Pinning is what keeps the
- * pipeline to a single routing decision: Jev is asked once per request by
- * POST /api/schema-design, and the answer is threaded down through every
- * stage rather than being recomputed per stage.
+ * The caller may pin a decision, in which case it is tried first and the rest
+ * of the chain is only reached if it fails. Pinning is what keeps the pipeline
+ * to a single routing decision: Jev is asked once per request by
+ * POST /api/schema-design, and the answer is threaded down through every stage
+ * rather than being recomputed per stage.
+ *
+ * What is pinned is a RoutingDecision rather than a bare provider name, because
+ * OpenRouter is a catalogue and not a model. The provider says which API to
+ * call; the model says which model on it. Both travel together, so an
+ * OpenRouter call reached by fallback - from Groq, from Gemini, or from the
+ * in-code default - still generates on a model chosen for this workload rather
+ * than on whatever the operator last configured.
  *
  * When nothing is pinned - the scope guard, which runs before routing has
  * happened, and /api/data-migration, which has no routing step - the provider
@@ -47,19 +55,40 @@ export type AIProviderFailure = {
 export async function callAI(
     request: AIRequest,
     taskLabel: string,
-    preferredProvider?: AIProviderName
+    decision?: RoutingDecision
 ): Promise<AIResponse> {
 
+    const routing: RoutingDecision =
+        decision ??
+            {
+                provider:
+                    pickDefaultProvider(request)
+            };
+
     const selectedProvider: AIProviderName =
-        preferredProvider ??
-            pickDefaultProvider(request);
+        routing.provider;
 
     console.log(
         `→ ${taskLabel}: provider=${selectedProvider}` +
             (
-                preferredProvider === undefined
+                decision === undefined
                     ? " (in-code default)"
                     : " (pinned by Jev)"
+            ) +
+            (
+                routing.openrouterModel === undefined
+                    ? ""
+                    : ` openrouterModel=${routing.openrouterModel}` +
+                        (
+                            routing.openrouterModelSource === undefined
+                                ? ""
+                                : ` via ${routing.openrouterModelSource}`
+                        ) +
+                        (
+                            routing.openrouterModelProbability === undefined
+                                ? ""
+                                : ` p=${routing.openrouterModelProbability.toFixed(3)}`
+                        )
             )
     );
 
@@ -137,7 +166,8 @@ export async function callAI(
             const response: AIResponse =
                 await generateWithProvider(
                     provider,
-                    request
+                    request,
+                    routing
                 );
 
             recordProviderSuccess(
@@ -171,13 +201,6 @@ export async function callAI(
             );
         }
     }
-
-
-    /*
-     * ============================================================
-     * ALL PROVIDERS FAILED
-     * ============================================================
-     */
 
 
     /*
@@ -346,7 +369,8 @@ function isAuthFailure(
 
 async function generateWithProvider(
     provider: AIProviderName,
-    request: AIRequest
+    request: AIRequest,
+    routing: RoutingDecision
 ): Promise<AIResponse> {
 
     switch (provider) {
@@ -367,8 +391,25 @@ async function generateWithProvider(
 
         case "openrouter":
 
+            /*
+             * The only provider with a choice to make, and the only one that has
+             * to make it for itself when the route pinned nothing. The model and
+             * where it came from travel together, so a call that arrives without
+             * a decision is resolved against the request in front of it rather
+             * than against configuration - see ai/jevModel.ts for the order.
+             */
             return await generateWithOpenRouter(
-                request
+                request,
+                routing.openrouterModel === undefined
+                    ? undefined
+                    : {
+                        model:
+                            routing.openrouterModel,
+
+                        source:
+                            routing.openrouterModelSource ??
+                            "jev"
+                    }
             );
     }
 }
@@ -383,6 +424,21 @@ async function generateWithProvider(
  * three-way split Jev is asked to make - small goes to the fastest provider,
  * medium to the balanced one, large to the model with the most headroom - so
  * an unpinned call and a pinned call would agree in the common case.
+ *
+ * The split is a plain if/else ladder over the two cheap providers, and that
+ * shape is the point. The thresholds are a monotone partition of the same
+ * workload estimate: the first branch is the cheapest way to answer a small
+ * request, the second is the cheapest way to answer a medium one, and anything
+ * that fails both has outgrown both and falls through to OpenRouter. Nesting
+ * the tests instead would make "medium" a function of "not small AND not
+ * large", which is the same three buckets expressed so that changing one
+ * threshold silently reclassifies the other.
+ *
+ * Only the PROVIDER is decided here. The OpenRouter model is not: it depends on
+ * which model the workload justifies, and that is a question about price
+ * against capability rather than about prompt length, so it belongs to the
+ * routing call. An unpinned request therefore reaches OpenRouter on the
+ * configured default model, which is the known one.
  *
  * This is a default, not a router. When the answer actually matters, ask Jev.
  */
@@ -424,6 +480,11 @@ function pickDefaultProvider(
             "primaryKey"
         );
 
+    /*
+     * SMALL: a short prompt over a shallow schema. Groq is the fastest of the
+     * three and its model is the cheapest, and a request this size does not
+     * need anything it does not have.
+     */
     if (
         estimatedInputTokens <= 2000 &&
         schemaComplexity <= 20
@@ -431,6 +492,13 @@ function pickDefaultProvider(
         return "groq";
     }
 
+    /*
+     * MEDIUM: past what Groq is for, but still within reach of a mid-priced
+     * model. Note this is a ceiling on the SMALL branch, not a floor on the
+     * next one - anything that misses SMALL is measured again here, so a large
+     * schema with a short prompt is judged on its complexity rather than on its
+     * token count alone.
+     */
     if (
         estimatedInputTokens <= 6000 &&
         schemaComplexity <= 60
@@ -438,6 +506,10 @@ function pickDefaultProvider(
         return "gemini";
     }
 
+    /*
+     * LARGE: failed both ceilings. OpenRouter, and the routing step picks which
+     * model on it the size of the work justifies.
+     */
     return "openrouter";
 }
 

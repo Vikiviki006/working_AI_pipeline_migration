@@ -12,7 +12,7 @@ import {
     isDdlStatement,
     splitSqlStatements,
     statementKind
-} from "../../lib/sql_guards.js";
+} from "../../lib/sqlGuards.js";
 
 const DDL_KIND_VALUES: string[] = [
     ...DDL_KINDS

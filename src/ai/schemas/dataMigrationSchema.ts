@@ -8,11 +8,11 @@ import {
     findBindParameters,
     splitSqlStatements,
     statementKind
-} from "../../lib/sql_guards.js";
+} from "../../lib/sqlGuards.js";
 
 import type {
     InsertTarget
-} from "../../lib/sql_guards.js";
+} from "../../lib/sqlGuards.js";
 
 const dataExtractionArraySchema = z
     .array(z.string())

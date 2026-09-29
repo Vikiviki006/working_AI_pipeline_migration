@@ -6,19 +6,19 @@ import {
 
 import {
     generateDataMigrationQueries
-} from "../ai/services/data_migration_service.js";
+} from "../ai/services/dataMigrationService.js";
 
 import {
     dataMigrationRequestSchema
-} from "../ai/schemas/data_migration_request_schema.js";
+} from "../ai/schemas/dataMigrationRequestSchema.js";
 
-import { respondWithError } from "./route_helpers.js";
+import { respondWithError } from "./routeHelpers.js";
 
 import {
     MANIFEST_PATH,
     ORACLE_DATA_DIR,
     POSTGRES_DML_DIR
-} from "../lib/file_layout.js";
+} from "../lib/fileLayout.js";
 
 export const dataMigrationRouter =
     Router();

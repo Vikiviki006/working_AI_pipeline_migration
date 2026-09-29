@@ -1,25 +1,25 @@
-import { callAI } from "../ai_client.js";
+import { callAI } from "../aiClient.js";
 
 import {
     DATA_MIGRATION_SYSTEM_PROMPT
-} from "../prompts/data_migration_prompt.js";
+} from "../prompts/dataMigrationPrompt.js";
 
 import {
     dataMigrationJsonSchema,
     dataMigrationResponseSchema
-} from "../schemas/data_migration_schema.js";
+} from "../schemas/dataMigrationSchema.js";
 
 import {
     columnNames,
     indexTables,
     parseSchema
-} from "../../lib/schema_verifier.js";
+} from "../../lib/schemaVerifier.js";
 
 import {
     buildFileManifest,
     insertStatementSlug,
     selectStatementSlug
-} from "../../lib/file_layout.js";
+} from "../../lib/fileLayout.js";
 
 import type { AIRequest } from "../../types/types.js";
 
@@ -31,12 +31,12 @@ import {
     extractSelectSources,
     normalizeSql,
     splitSqlStatements
-} from "../../lib/sql_guards.js";
+} from "../../lib/sqlGuards.js";
 
 import type {
     ProjectedColumn,
     SelectSource
-} from "../../lib/sql_guards.js";
+} from "../../lib/sqlGuards.js";
 
 import {
     ProviderOutputError,
@@ -53,11 +53,11 @@ import type {
 
 import type {
     ArtifactFile
-} from "../../lib/file_layout.js";
+} from "../../lib/fileLayout.js";
 
 import type {
     DataMigrationRequest
-} from "../schemas/data_migration_request_schema.js";
+} from "../schemas/dataMigrationRequestSchema.js";
 
 export type DataMigrationOutput = {
     source: SourceDatabase;

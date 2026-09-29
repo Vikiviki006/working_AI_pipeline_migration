@@ -33,7 +33,7 @@ import {
     sequencePrefix,
     slugify,
     statementKind
-} from "./sql_guards.js";
+} from "./sqlGuards.js";
 
 export const ROOT = "migration";
 
